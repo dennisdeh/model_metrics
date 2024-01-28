@@ -5,17 +5,20 @@ from model_metrics.gauc import gauc
 from model_metrics.auc_mu import auc_mu  # find it here: https://github.com/kleimanr/auc_mu
 
 
-def all_model_metrics(
-    y_true: np.array,
-    y_pred_labels: np.array,
-    y_pred_probabilities: np.array,
-    y_train: np.array,
-    target_type: str,
-    zero_division: int = 0,
+def model_performance_metrics(
+        y_true: np.array,
+        y_pred_labels: np.array,
+        y_pred_probabilities: np.array,
+        y_train: np.array,
+        target_type: str,
+        zero_division: int = 0,
 ):
     """
-    Calculate all model performance metrics in sk-learn - and a few more
-    like e.g. AUC_mu and gAUC for binary and multi-class models.
+    Calculate the most useful model performance metrics implemented in
+    scikit-learn, AUC_mu and gAUC for binary and multi-class models.
+    The performance evaluation is robust and will return nan if the metrics
+    cannot be evaluated. Labels are aligned with the training data to avoid
+    issues when the validation data does not contain all classes.
 
     The util is model-agnostic in the sense that one can will calculate
     the metrics as long as the prediction labels and probabilities are
@@ -28,13 +31,17 @@ def all_model_metrics(
     y_pred_labels
         Model predictions with labels
     y_pred_probabilities
-        Model prediction probabilities
+        Model prediction probabilities. When binary, the first column
+        is assumed to be the negative class, and the second column
+        is assumed to be the positive class.
     y_train
         Training data of the model
     target_type
         "binary" or "multiclass"
     zero_division:
-        Give classes where zero-division occurs a "bad" assessment
+        Assessment of classes where zero-division occurs. The default
+        is to assign them a "bad" assessment i.e. a low score for the
+        metrics affected.
 
     Returns
     -------
@@ -66,10 +73,7 @@ def all_model_metrics(
         "log loss": metrics.log_loss(y_true=y_val_onehot, y_pred=y_pred_probabilities),
         "matthews corrcoef": metrics.matthews_corrcoef(
             y_true=y_true, y_pred=y_pred_labels
-        ),
-        "ndcg score": metrics.ndcg_score(
-            y_true=y_val_onehot, y_score=y_pred_probabilities
-        ),
+        )
     }
 
     # multiclass only
@@ -78,6 +82,9 @@ def all_model_metrics(
             y_val_onehot.ravel(), y_pred_probabilities.ravel()
         )
         dict_metric_values_mc = {
+            "ndcg score": metrics.ndcg_score(
+                y_true=y_val_onehot, y_score=y_pred_probabilities
+            ),
             "gAUC": gauc(y_true, y_pred_labels)["statistic"],
             "AUC_mu": auc_mu(
                 y_true=y_true, y_score=y_pred_probabilities, stop_on_errors=False
@@ -157,12 +164,16 @@ def all_model_metrics(
     # binary only
     elif target_type == "binary":
         dict_metric_values_bin = {
-            "AUC": roc_auc_score(y_true=y_true, y_score=y_pred_probabilities),
+            "AUC": roc_auc_score(y_true=y_true,
+                                 y_score=y_pred_labels,
+                                 average=None,
+                                 multi_class="raise"),
             "average precision score": metrics.average_precision_score(
                 y_true=y_true, y_score=y_pred_labels
             ),
             "brier score loss": metrics.brier_score_loss(
-                y_true=y_true, y_prob=y_pred_probabilities
+                y_true=y_true,
+                y_prob=y_pred_probabilities[:, 1]  # assumed to be positive class
             ),
             "F1 score": metrics.f1_score(
                 y_true=y_true,
@@ -170,8 +181,11 @@ def all_model_metrics(
                 average="binary",
                 zero_division=zero_division,
             ),
-            "precision recall curve": metrics.precision_recall_curve(
-                y_true=y_true, probas_pred=y_pred_probabilities
+            "recall score": metrics.recall_score(
+                y_true=y_true,
+                y_pred=y_pred_labels,
+                average="binary",
+                zero_division=zero_division,
             ),
             "precision recall F-score support": metrics.precision_recall_fscore_support(
                 y_true=y_true,
